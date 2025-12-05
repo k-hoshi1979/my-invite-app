@@ -2,8 +2,231 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ダークモード設定を無効化し、常に文字を黒、背景を白にする */
+/* =========================================
+   ベース設定 (Variables)
+   ========================================= */
+:root {
+  --bg-color: #f3f4f6;       /* 全体の背景：薄いグレー */
+  --text-main: #1f2937;      /* メイン文字：濃いグレー */
+  --sidebar-bg: #111827;     /* サイドバー：黒 */
+  --accent-color: #2563eb;   /* アクセント：青 */
+  --paper-white: #ffffff;    /* 紙の白 */
+}
+
 body {
-  color: #1a202c; /* ダークグレー */
-  background: #ffffff;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+/* =========================================
+   共通パーツ
+   ========================================= */
+.btn {
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+  border: none;
+  font-size: 14px;
+}
+.btn-primary { background-color: var(--accent-color); color: white; }
+.btn-secondary { background-color: #fff; color: #333; border: 1px solid #ccc; }
+.btn:hover { opacity: 0.8; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.input-field {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: white;
+  color: #000;
+}
+
+/* =========================================
+   1. ログイン画面
+   ========================================= */
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #111827; /* ログイン画面だけは黒背景でカッコよく */
+}
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 40px;
+  background-color: white; /* カードは白で見やすく */
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  text-align: center;
+}
+.login-title { font-size: 24px; font-weight: bold; margin-bottom: 30px; color: #111; }
+.form-group { margin-bottom: 20px; text-align: left; }
+.form-label { display: block; font-size: 12px; font-weight: bold; color: #6b7280; margin-bottom: 5px; }
+
+/* =========================================
+   2. 管理画面
+   ========================================= */
+.admin-layout { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 250px;
+  background-color: var(--sidebar-bg);
+  color: white;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-header { padding: 20px; font-weight: bold; letter-spacing: 1px; border-bottom: 1px solid #374151; }
+.sidebar-nav { flex: 1; padding: 20px 0; }
+.nav-item { display: block; padding: 12px 20px; color: #9ca3af; text-decoration: none; }
+.nav-item.active { background-color: #1f2937; color: white; border-left: 4px solid var(--accent-color); }
+.sidebar-footer { 
+  padding: 20px; 
+  padding-bottom: 60px; /* ★ここを追加して底上げ */
+  border-top: 1px solid #374151; 
+  font-size: 12px; 
+  color: #9ca3af; 
+}
+.main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.top-bar { background: white; padding: 15px 30px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+.content-area { padding: 30px; overflow-y: auto; }
+
+/* フォームとテーブル */
+.create-guest-form {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  margin-bottom: 30px;
+  display: flex;
+  gap: 15px;
+  align-items: flex-end;
+}
+.guest-table-wrapper { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.guest-table { width: 100%; border-collapse: collapse; text-align: left; }
+.guest-table th { background: #f9fafb; padding: 12px 20px; font-size: 12px; font-weight: bold; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+.guest-table td { padding: 12px 20px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
+.status-badge { padding: 2px 8px; font-size: 11px; border-radius: 12px; font-weight: bold; }
+.status-invited { background: #dbeafe; color: #1e40af; }
+.status-checked { background: #f3f4f6; color: #4b5563; }
+/* ...既存の .status-checked 等の下に追加... */
+
+.status-invited { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+.status-checked { background: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; }
+
+/* ▼▼▼ これを追加 ▼▼▼ */
+.status-additional { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+
+/* =========================================
+   3. 招待状 (PDF用)
+   ========================================= */
+.invite-screen {
+  min-height: 100vh;
+  background-color: #333; /* 画面上の背景は暗くして紙を目立たせる */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px;
+}
+.invite-controls { width: 375px; display: flex; justify-content: flex-end; margin-bottom: 10px; }
+
+/* ★ここが重要：紙の部分は強制的に白背景・黒文字★ */
+/* 変更前 */
+.invite-paper {
+  /* ...他の設定... */
+  min-height: 600px; /* これだと少し曖昧 */
+}
+
+/* 変更後 */
+.invite-paper {
+  width: 375px;
+  /* A4縦横比(1:1.414)に合わせるなら 375px * 1.414 ≒ 530px 程度にするのが安全 */
+  min-height: 530px; 
+  background-color: #ffffff;
+  color: #000000;
+  box-shadow: 0 0 20px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  font-family: "Times New Roman", "YuMincho", serif;
+  /* 余白がキツキツにならないようパディング調整 */
+  padding-bottom: 0; 
+}
+
+.paper-header {
+  background-color: #000; /* ヘッダーだけ黒帯 */
+  color: #fff;
+  height: 90px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+.paper-title { font-size: 20px; font-weight: bold; letter-spacing: 2px; font-family: sans-serif; }
+.paper-subtitle { font-size: 10px; opacity: 0.8; letter-spacing: 1px; font-family: sans-serif; }
+
+.paper-body { padding: 30px; flex: 1; text-align: center; }
+.paper-greeting { font-size: 11px; text-align: left; line-height: 1.8; color: #555; margin-bottom: 30px; }
+
+.guest-info { text-align: left; margin-bottom: 30px; border-left: 3px solid #000; padding-left: 15px; }
+.guest-company { font-size: 12px; color: #444; margin-bottom: 4px; font-family: sans-serif; }
+.guest-name-wrap { display: flex; align-items: baseline; gap: 8px; }
+.guest-name { font-size: 28px; font-weight: bold; }
+
+.qr-section { margin-bottom: 30px; }
+.qr-frame { display: inline-block; padding: 10px; border: 1px solid #ccc; }
+.qr-caption { margin-top: 8px; font-size: 10px; color: #666; font-family: sans-serif; }
+
+.exhibitor-info { text-align: left; border-top: 1px solid #eee; padding-top: 15px; }
+.exhibitor-label { font-size: 10px; color: #888; text-transform: uppercase; font-family: sans-serif; }
+.exhibitor-name { font-size: 14px; font-weight: bold; font-family: sans-serif; margin-top: 2px; }
+.booth-number { font-size: 12px; font-family: monospace; background: #eee; padding: 2px 5px; margin-left: 10px; }
+
+.paper-footer { background: #f9f9f9; padding: 8px; text-align: center; font-size: 9px; color: #999; font-family: sans-serif; border-top: 1px solid #eee; }
+/* ...既存コードの一番下に追加... */
+
+/* =========================================
+   4. モーダル・ユーティリティ
+   ========================================= */
+   .overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex; justify-content: center; align-items: center;
+    z-index: 1000;
+  }
+  .modal {
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  }
+  .modal-header { font-weight: bold; font-size: 18px; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  
+  /* ファイルアップロードなど */
+  .file-input-wrapper { margin-top: 10px; margin-bottom: 20px; }
+  .file-input-label { display: block; font-size: 12px; font-weight: bold; color: #666; margin-bottom: 5px; }
+  .csv-note { font-size: 11px; color: #888; margin-top: 4px; }
+  
+  /* アイコン風ボタン */
+  .icon-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px; color: #666; }
+  .icon-btn:hover { color: var(--accent-color); }
+
+  /* ...前のコード... */
+
+.paper-footer {
+  background-color: #ffffff; /* 背景を確実に白にする */
+  color: #000000;            /* 文字を確実に黒にする */
+  padding: 10px;
+  text-align: center;
+  font-size: 10px;
+  font-family: sans-serif;
+  border-top: 1px solid #cccccc; /* 上に区切り線を入れる */
+  letter-spacing: 1px;
 }

@@ -2,220 +2,321 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/utils/supabaseClient'
 import { useRouter } from 'next/navigation'
+import Papa from 'papaparse'
 
 export default function AdminPage() {
   const router = useRouter()
   const [user, setUser] = useState(null)
+  const [exhibitorInfo, setExhibitorInfo] = useState({ company_name: '', booth_number: '' })
   const [guests, setGuests] = useState([])
   const [loading, setLoading] = useState(true)
   
-  // フォーム入力用
   const [newGuestName, setNewGuestName] = useState('')
   const [newCompanyName, setNewCompanyName] = useState('')
+  const [newDepartment, setNewDepartment] = useState('')
+  const [newEmail, setNewEmail] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // ■ 初期データ読み込み
+  const [editingGuest, setEditingGuest] = useState(null)
+  const [editForm, setEditForm] = useState({ guest_name: '', company_name: '', department: '', email: '' })
+
+  const [showSettings, setShowSettings] = useState(false)
+  const [showCsv, setShowCsv] = useState(false)
+
   useEffect(() => {
     const init = async () => {
-      // 1. ログインチェック
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        router.push('/login')
-        return
-      }
-      const currentUser = session.user
-      setUser(currentUser)
-
-      // 2. 出展者プロフィールの確認・作成 (初回のみ)
-      // これがないと招待客登録時にエラーになるため、なければ自動で作ります
-      const { data: exhibitor } = await supabase
-        .from('exhibitors')
-        .select('id')
-        .eq('id', currentUser.id)
-        .single()
-
+      if (!session) { router.push('/login'); return }
+      setUser(session.user)
+      
+      const { data: exhibitor } = await supabase.from('exhibitors').select('*').eq('id', session.user.id).single()
       if (!exhibitor) {
-        await supabase.from('exhibitors').insert({
-          id: currentUser.id,
-          company_name: '未設定の会社', // 後で編集機能をつけるとして、一旦仮置き
-          email: currentUser.email
-        })
+        const newProfile = { id: session.user.id, company_name: '未設定', email: session.user.email }
+        await supabase.from('exhibitors').insert(newProfile)
+        setExhibitorInfo(newProfile)
+      } else {
+        setExhibitorInfo(exhibitor)
       }
-
-      // 3. 招待客リストの取得
-      fetchGuests(currentUser.id)
+      fetchGuests(session.user.id)
     }
-
     init()
   }, [router])
 
-  // ■ 招待客リストをDBから取得する関数
   const fetchGuests = async (userId) => {
-    const { data, error } = await supabase
-      .from('guests')
-      .select('*')
-      .eq('exhibitor_id', userId)
-      .order('created_at', { ascending: false })
-    
+    const { data } = await supabase.from('guests').select('*').eq('exhibitor_id', userId).order('created_at', { ascending: false })
     if (data) setGuests(data)
     setLoading(false)
   }
 
-  // ■ 招待客を追加する関数
   const handleAddGuest = async (e) => {
     e.preventDefault()
     if (!newGuestName) return
     setIsSubmitting(true)
-
     const { error } = await supabase.from('guests').insert({
       exhibitor_id: user.id,
       guest_name: newGuestName,
       company_name: newCompanyName,
+      department: newDepartment,
+      email: newEmail,
       status: 'invited'
     })
-
-    if (error) {
-      alert('エラーが発生しました: ' + error.message)
-    } else {
-      // フォームをクリアしてリストを再取得
-      setNewGuestName('')
-      setNewCompanyName('')
+    if (!error) {
+      setNewGuestName(''); setNewCompanyName(''); setNewDepartment(''); setNewEmail('')
       fetchGuests(user.id)
+    } else {
+      alert(error.message)
     }
     setIsSubmitting(false)
   }
 
-  // ■ ログアウト関数
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
+  const handleDeleteGuest = async (guestId) => {
+    if (!window.confirm('本当にこの招待客データを削除しますか？\n※この操作は取り消せません。')) return
+    const { error } = await supabase.from('guests').delete().eq('id', guestId)
+    if (!error) fetchGuests(user.id)
+    else alert('削除失敗: ' + error.message)
   }
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-500">読み込み中...</div>
+  const openEditModal = (guest) => {
+    setEditingGuest(guest)
+    setEditForm({
+      guest_name: guest.guest_name,
+      company_name: guest.company_name || '',
+      department: guest.department || '',
+      email: guest.email || ''
+    })
+  }
+
+  const handleUpdateGuest = async (e) => {
+    e.preventDefault()
+    if (!editingGuest) return
+    const { error } = await supabase.from('guests').update({
+      guest_name: editForm.guest_name,
+      company_name: editForm.company_name,
+      department: editForm.department,
+      email: editForm.email
+    }).eq('id', editingGuest.id)
+
+    if (!error) {
+      setEditingGuest(null)
+      fetchGuests(user.id)
+    } else {
+      alert('更新失敗: ' + error.message)
+    }
+  }
+
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault()
+    const { error } = await supabase.from('exhibitors').update({
+      company_name: exhibitorInfo.company_name,
+      booth_number: exhibitorInfo.booth_number
+    }).eq('id', user.id)
+    if (!error) { alert('情報を更新しました'); setShowSettings(false) }
+    else alert('更新失敗: ' + error.message)
+  }
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: async (results) => {
+        const rows = results.data
+        if (!rows[0] || !rows[0].name) {
+          alert('CSV形式エラー: name列は必須です')
+          return
+        }
+        const insertData = rows.map(row => ({
+          exhibitor_id: user.id,
+          guest_name: row.name,
+          company_name: row.company || '',
+          department: row.department || '',
+          email: row.email || '',
+          status: 'invited'
+        }))
+        const { error } = await supabase.from('guests').insert(insertData)
+        if (!error) {
+          alert(`${insertData.length}件インポート完了`)
+          setShowCsv(false)
+          fetchGuests(user.id)
+        } else {
+          alert('インポート失敗: ' + error.message)
+        }
+      }
+    })
+  }
+
+  const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login') }
+
+  if (loading) return <div style={{padding:'20px'}}>Loading...</div>
 
   return (
-    <div className="flex min-h-screen bg-gray-100 font-sans text-gray-800">
-      
-      {/* === サイドバー === */}
-      <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col hidden md:flex">
-        <div className="p-6 border-b border-slate-800">
-          <div className="font-bold text-white tracking-wider text-lg">EVENT MANAGER</div>
-        </div>
-        <nav className="flex-1 p-4 space-y-2 text-sm">
-          <a href="#" className="block bg-blue-600 text-white px-4 py-3 rounded-lg font-medium shadow">
-            招待客リスト
-          </a>
-          <div className="px-4 py-3 text-slate-500 cursor-not-allowed">会社情報設定 (準備中)</div>
+    <div className="admin-layout">
+      <aside className="sidebar">
+        <div className="sidebar-header">Admin Panel</div>
+        <nav className="sidebar-nav">
+          <div className="nav-item active">Guest List</div>
+          <button onClick={() => setShowSettings(true)} className="nav-item" style={{background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
+            Settings
+          </button>
         </nav>
-        <div className="p-4 border-t border-slate-800 text-xs">
-          <p className="text-slate-500 mb-2">Login as:</p>
-          <p className="text-white truncate">{user?.email}</p>
-          <button onClick={handleLogout} className="mt-3 text-red-400 hover:text-red-300 underline">ログアウト</button>
+        <div className="sidebar-footer">
+          <p>{exhibitorInfo.company_name}</p>
+          <button onClick={handleLogout} className="btn btn-danger" style={{padding:0, marginTop:'10px'}}>Log out</button>
         </div>
       </aside>
 
-      {/* === メインコンテンツ === */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        
-        {/* ヘッダー (スマホ用ログアウトボタン等) */}
-        <header className="bg-white border-b border-gray-200 p-4 flex justify-between items-center shadow-sm">
-          <h1 className="text-xl font-bold text-gray-800">招待客管理</h1>
-          <button onClick={handleLogout} className="md:hidden text-sm text-red-500 border border-red-500 px-3 py-1 rounded">ログアウト</button>
-        </header>
-
-        {/* コンテンツエリア */}
-        <div className="flex-1 overflow-auto p-6">
-          
-          {/* 新規登録フォーム */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-8">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <span className="bg-blue-100 text-blue-600 w-6 h-6 rounded-full flex items-center justify-center text-xs">＋</span>
-              新規招待登録
-            </h2>
-            <form onSubmit={handleAddGuest} className="flex flex-col md:flex-row gap-4 items-end">
-              <div className="flex-1 w-full">
-                <label className="block text-sm font-medium text-gray-600 mb-1">会社名</label>
-                <input 
-                  type="text" 
-                  className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="(株) サンプル商事"
-                  value={newCompanyName}
-                  onChange={(e) => setNewCompanyName(e.target.value)}
-                />
-              </div>
-              <div className="flex-1 w-full">
-                <label className="block text-sm font-medium text-gray-600 mb-1">氏名 <span className="text-red-500">*</span></label>
-                <input 
-                  type="text" 
-                  required
-                  className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="山田 太郎"
-                  value={newGuestName}
-                  onChange={(e) => setNewGuestName(e.target.value)}
-                />
-              </div>
-              <button 
-                type="submit" 
-                disabled={isSubmitting}
-                className="bg-blue-600 text-white font-bold px-6 py-2.5 rounded hover:bg-blue-700 transition disabled:opacity-50 w-full md:w-auto"
-              >
-                {isSubmitting ? '登録中...' : '登録する'}
-              </button>
-            </form>
+      <main className="main-content">
+        <div className="top-bar">
+          <h2>Guest Management</h2>
+          <div style={{display:'flex', gap:'10px'}}>
+             <button onClick={() => setShowCsv(true)} className="btn btn-secondary">📂 CSV Import</button>
           </div>
+        </div>
 
-          {/* リスト表示 */}
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-              <h3 className="font-bold text-gray-700">登録済みゲスト ({guests.length}名)</h3>
+        <div className="content-area">
+          <form onSubmit={handleAddGuest} className="create-guest-form">
+            <div style={{flex:1}}>
+              <label className="form-label">COMPANY</label>
+              <input type="text" className="input-field" placeholder="会社名" value={newCompanyName} onChange={(e)=>setNewCompanyName(e.target.value)} />
             </div>
-            
-            {guests.length === 0 ? (
-              <div className="p-10 text-center text-gray-400">
-                まだ招待客が登録されていません。<br/>上のフォームから登録してみましょう。
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left font-medium text-gray-500">会社名</th>
-                      <th className="px-6 py-3 text-left font-medium text-gray-500">氏名</th>
-                      <th className="px-6 py-3 text-left font-medium text-gray-500">ステータス</th>
-                      <th className="px-6 py-3 text-left font-medium text-gray-500">招待状URL</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {guests.map((guest) => (
-                      <tr key={guest.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-gray-600">{guest.company_name}</td>
-                        <td className="px-6 py-4 font-bold text-gray-900">{guest.guest_name} 様</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                            guest.status === 'checked_in' ? 'bg-gray-200 text-gray-600' : 'bg-green-100 text-green-700'
-                          }`}>
-                            {guest.status === 'checked_in' ? '来場済み' : '招待中'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                           <a 
-                             href={`/invite/${guest.id}`} 
-                             target="_blank" 
-                             className="text-blue-600 hover:underline flex items-center gap-1"
-                           >
-                             確認する ↗
-                           </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+            <div style={{flex:1}}>
+              <label className="form-label">DEPT</label>
+              <input type="text" className="input-field" placeholder="部署・役職" value={newDepartment} onChange={(e)=>setNewDepartment(e.target.value)} />
+            </div>
+            <div style={{flex:1}}>
+              <label className="form-label">NAME *</label>
+              <input type="text" className="input-field" placeholder="氏名" required value={newGuestName} onChange={(e)=>setNewGuestName(e.target.value)} />
+            </div>
+            <div style={{flex:1}}>
+              <label className="form-label">EMAIL</label>
+              <input type="email" className="input-field" placeholder="Email" value={newEmail} onChange={(e)=>setNewEmail(e.target.value)} />
+            </div>
+            <button disabled={isSubmitting} className="btn btn-primary">ADD</button>
+          </form>
 
+          <div className="guest-table-wrapper">
+            <table className="guest-table">
+              <thead>
+                <tr>
+                  <th>COMPANY</th>
+                  <th>DEPT</th>
+                  <th>NAME</th>
+                  <th>EMAIL</th>
+                  <th>STATUS</th>
+                  <th>ACTION</th>
+                </tr>
+              </thead>
+              <tbody>
+                {guests.map((guest) => (
+                  <tr key={guest.id}>
+                    <td>{guest.company_name}</td>
+                    <td style={{color:'#666', fontSize:'13px'}}>{guest.department || '-'}</td>
+                    <td style={{fontWeight:'bold'}}>{guest.guest_name} 様</td>
+                    <td style={{color:'#666', fontSize:'12px'}}>{guest.email || '-'}</td>
+                    <td>
+                      {/* ▼▼▼ ステータス表示の分岐 ▼▼▼ */}
+                      <span className={`status-badge ${
+                        guest.status === 'checked_in' ? 'status-checked' : 
+                        guest.status === 'additional' ? 'status-additional' : 'status-invited'
+                      }`}>
+                        {guest.status === 'checked_in' ? 'CHECKED-IN' : 
+                         guest.status === 'additional' ? 'ADDITIONAL' : 'INVITED'}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                        <a href={`/invite/${guest.id}`} target="_blank" style={{color:'#2563eb', fontSize:'12px', textDecoration:'none'}}>Card</a>
+                        <button onClick={() => openEditModal(guest)} className="btn btn-secondary" style={{padding:'2px 6px', fontSize:'10px'}}>Edit</button>
+                        <button onClick={() => handleDeleteGuest(guest.id)} className="btn btn-danger" style={{padding:'2px 6px', fontSize:'10px', border:'1px solid #fee2e2'}}>Del</button>
+                        {guest.email && (
+                          <a href={`mailto:${guest.email}?subject=Invitation&body=${window.location.origin}/invite/${guest.id}`} 
+                             className="btn btn-secondary" style={{padding:'2px 6px', fontSize:'10px'}}>✉</a>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </main>
+
+      {showSettings && (
+        <div className="overlay">
+          <div className="modal">
+            <div className="modal-header">Exhibitor Settings</div>
+            <form onSubmit={handleUpdateProfile}>
+              <div className="form-group">
+                <label className="form-label">Company Name</label>
+                <input 
+                  type="text" className="input-field" required
+                  value={exhibitorInfo.company_name}
+                  onChange={(e) => setExhibitorInfo({...exhibitorInfo, company_name: e.target.value})}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Booth Number</label>
+                <input 
+                  type="text" className="input-field" placeholder="A-12"
+                  value={exhibitorInfo.booth_number || ''}
+                  onChange={(e) => setExhibitorInfo({...exhibitorInfo, booth_number: e.target.value})}
+                />
+              </div>
+              <div className="modal-actions">
+                <button type="button" onClick={() => setShowSettings(false)} className="btn btn-secondary">Cancel</button>
+                <button type="submit" className="btn btn-primary">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingGuest && (
+        <div className="overlay">
+          <div className="modal">
+            <div className="modal-header">Edit Guest Info</div>
+            <form onSubmit={handleUpdateGuest}>
+              <div className="form-group">
+                <label className="form-label">Company Name</label>
+                <input type="text" className="input-field" value={editForm.company_name} onChange={(e) => setEditForm({...editForm, company_name: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Department</label>
+                <input type="text" className="input-field" value={editForm.department} onChange={(e) => setEditForm({...editForm, department: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Guest Name</label>
+                <input type="text" className="input-field" required value={editForm.guest_name} onChange={(e) => setEditForm({...editForm, guest_name: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Email</label>
+                <input type="email" className="input-field" value={editForm.email} onChange={(e) => setEditForm({...editForm, email: e.target.value})} />
+              </div>
+              <div className="modal-actions">
+                <button type="button" onClick={() => setEditingGuest(null)} className="btn btn-secondary">Cancel</button>
+                <button type="submit" className="btn btn-primary">Update</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showCsv && (
+        <div className="overlay">
+          <div className="modal">
+            <div className="modal-header">Import CSV</div>
+            <div className="file-input-wrapper">
+              <label className="file-input-label">Select CSV File</label>
+              <input type="file" accept=".csv" onChange={handleFileUpload} />
+              <p className="csv-note">※ Header required: name, company, department, email</p>
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setShowCsv(false)} className="btn btn-secondary">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

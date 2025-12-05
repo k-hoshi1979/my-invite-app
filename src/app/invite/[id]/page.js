@@ -8,152 +8,110 @@ import jsPDF from 'jspdf'
 
 export default function InvitePage() {
   const params = useParams()
-  const { id } = params // URLから招待IDを取得
+  const { id } = params
   const [guest, setGuest] = useState(null)
   const [loading, setLoading] = useState(true)
-  const printRef = useRef() // PDFにする範囲を指定するタグ
+  const printRef = useRef()
 
-  // ■ データ取得
   useEffect(() => {
     const fetchInviteData = async () => {
-      // ゲスト情報と、紐付いている出展者情報をまとめて取得
-      const { data, error } = await supabase
-        .from('guests')
-        .select(`
-          *,
-          exhibitors (
-            company_name,
-            booth_number
-          )
-        `)
-        .eq('id', id)
-        .single()
-
-      if (error) {
-        console.error(error)
-      } else {
-        setGuest(data)
-      }
+      const { data } = await supabase.from('guests').select(`*, exhibitors (company_name, booth_number)`).eq('id', id).single()
+      if (data) setGuest(data)
       setLoading(false)
     }
-
     if (id) fetchInviteData()
   }, [id])
 
-  // ■ PDFダウンロード処理
+  // ■ 修正版 PDFダウンロード処理
   const handleDownloadPdf = async () => {
     if (!printRef.current) return
-
     try {
-      // 1. HTMLを画像(Canvas)に変換
-      const canvas = await html2canvas(printRef.current, {
-        scale: 2, // 高解像度でキャプチャ
-        useCORS: true,
+      // 1. HTMLを画像化
+      const canvas = await html2canvas(printRef.current, { 
+        scale: 3, // 解像度を上げて文字をきれいに
+        useCORS: true 
       })
       const imgData = canvas.toDataURL('image/png')
-
-      // 2. PDFを作成 (A4縦)
+      
+      // 2. A4サイズのPDFを作成 (210mm x 297mm)
       const pdf = new jsPDF('p', 'mm', 'a4')
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = pdf.internal.pageSize.getHeight()
+      const pdfWidth = 210
+      const pdfHeight = 297
       
-      // 画像のアスペクト比に合わせて高さを計算
+      // 3. 画像の比率を計算
       const imgProps = pdf.getImageProperties(imgData)
-      const imgHeight = (imgProps.height * pdfWidth) / imgProps.width
+      const contentHeight = (imgProps.height * pdfWidth) / imgProps.width
       
-      // PDFに画像を貼り付け
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, imgHeight)
-      pdf.save(`招待状_${guest.guest_name}様.pdf`)
+      // ★ここが修正ポイント: はみ出し防止ロジック
+      // コンテンツの高さがA4(297mm)より大きい場合、あるいはギリギリすぎる場合
+      // 少し縮小して収める
+      if (contentHeight > pdfHeight) {
+        // 高さに合わせて幅を縮小
+        const scaledWidth = (pdfWidth * pdfHeight) / contentHeight
+        // 中央寄せで配置
+        const x = (pdfWidth - scaledWidth) / 2
+        pdf.addImage(imgData, 'PNG', x, 0, scaledWidth, pdfHeight)
+      } else {
+        // 通常通り配置（高さに余裕がある場合）
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, contentHeight)
+      }
 
+      pdf.save(`招待状_${guest.guest_name}.pdf`)
     } catch (err) {
-      alert('PDF生成に失敗しました: ' + err.message)
+      alert('PDF生成失敗: ' + err.message)
     }
   }
 
-  if (loading) return <div className="p-10 text-center">読み込み中...</div>
-  if (!guest) return <div className="p-10 text-center text-red-500">招待状が見つかりません</div>
+  if (loading) return <div style={{color:'white', padding:'20px'}}>Loading...</div>
+  if (!guest) return <div style={{color:'white', padding:'20px'}}>Invalid ID</div>
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center py-10 px-4">
-      
-      {/* 操作ボタンエリア */}
-      <div className="w-full max-w-[400px] mb-6 flex justify-between items-center">
-        <p className="text-sm text-gray-500">招待状プレビュー</p>
-        <button 
-          onClick={handleDownloadPdf}
-          className="bg-blue-600 text-white px-6 py-2 rounded-full shadow hover:bg-blue-700 font-bold text-sm flex items-center gap-2"
-        >
-          <span>📥</span> PDF保存
-        </button>
+    <div className="invite-screen">
+      <div className="invite-controls">
+        <button onClick={handleDownloadPdf} className="btn btn-secondary">PDF Download</button>
       </div>
 
-      {/* === 招待状デザイン (ここがPDFになります) === */}
-      <div className="shadow-2xl">
-        <div 
-          ref={printRef} 
-          className="w-[375px] bg-white text-gray-800 relative overflow-hidden flex flex-col"
-          style={{ minHeight: '600px' }} // 縦長比率を維持
-        >
-            {/* ヘッダー装飾 */}
-            <div className="bg-slate-900 h-24 flex items-center justify-center">
-                <h1 className="text-white text-xl font-bold tracking-widest">DX EXPO 2025</h1>
+      {/* 印刷対象エリア */}
+      <div className="invite-paper" ref={printRef}>
+        
+        <div className="paper-header">
+          <div className="paper-title">19回としまMONOづくりメッセ</div>
+          <div className="paper-subtitle">OFFICIAL INVITATION 2025</div>
+        </div>
+
+        <div className="paper-body">
+          <div className="paper-greeting">
+            拝啓<br/>
+            時下ますますご清栄のこととお慶び申し上げます。<br/>
+            この度、弊社展示ブースへのご招待をお送りいたします。
+          </div>
+
+          <div className="guest-info">
+            <div className="guest-company">{guest.company_name}</div>
+            <div className="guest-name-wrap">
+              <span className="guest-name">{guest.guest_name}</span>
+              <span style={{fontSize:'14px'}}>様</span>
             </div>
+          </div>
 
-            <div className="p-8 flex-1 flex flex-col items-center">
-                
-                {/* 宛名エリア */}
-                <div className="w-full mb-8 text-left">
-                    <p className="text-sm text-gray-500 mb-1">{guest.company_name}</p>
-                    {/* items-baselineに変更し、文字の基準線で揃えます */}
-                        <div className="flex items-baseline gap-2 flex-wrap">
-                            <h2 className="text-3xl font-bold text-black leading-none">
-                               {guest.guest_name}
-                            </h2>
-                            <span className="text-lg text-gray-600">様</span>
-                        </div>
-                </div>
-
-                {/* QRコードエリア */}
-                <div className="bg-white border-4 border-double border-gray-200 p-6 rounded-xl mb-8 flex flex-col items-center shadow-sm w-full">
-                    <p className="text-xs font-bold text-blue-600 mb-3 uppercase tracking-wider">Reception QR Code</p>
-                    <div className="bg-white p-2">
-                         {/* QRの中身は招待ID */}
-                        <QRCode value={guest.id} size={160} />
-                    </div>
-                    <p className="text-[10px] text-gray-400 mt-3 text-center">
-                        受付にてこのコードをご提示ください
-                    </p>
-                </div>
-
-                <hr className="w-full border-gray-200 mb-8" />
-
-                {/* 出展者情報 */}
-                <div className="w-full text-left">
-                    <p className="text-[10px] text-gray-400 uppercase mb-1">Invited by</p>
-                    <div className="flex items-start gap-3">
-                        <div>
-                            <p className="font-bold text-gray-800 text-lg">
-                                {guest.exhibitors?.company_name || '出展社名未設定'}
-                            </p>
-                            <p className="text-sm text-gray-600 mt-1">
-                                小間番号: <span className="font-mono bg-yellow-100 px-2 rounded font-bold">{guest.exhibitors?.booth_number || '未定'}</span>
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* フッター装飾 */}
-                <div className="mt-auto pt-8 w-full text-center">
-                     <p className="text-[10px] text-gray-300">© 2025 DX EXPO Executive Committee</p>
-                </div>
+          <div className="qr-section">
+            <div className="qr-frame">
+              <QRCode value={guest.id} size={120} />
             </div>
+            <div className="qr-caption">SCAN AT RECEPTION</div>
+          </div>
+
+          <div className="exhibitor-info">
+            <div className="exhibitor-label">Invited by</div>
+            <div className="exhibitor-name">{guest.exhibitors?.company_name || '出展社'}</div>
+            <span className="booth-number">BOOTH: {guest.exhibitors?.booth_number || '-'}</span>
+          </div>
+        </div>
+
+        <div className="paper-footer">
+          サンシャインシティ文化会館 / HALL B
         </div>
       </div>
-      
-      <p className="mt-8 text-xs text-gray-400 text-center max-w-md">
-        ※当日スマホで表示する場合は、このページのURLをブックマークするか、スクリーンショットを保存してください。
-      </p>
-
     </div>
   )
 }
